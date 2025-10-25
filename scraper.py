@@ -1,13 +1,57 @@
 import re
 from urllib.parse import urlparse
+import json
+from bs4 import BeautifulSoup
+from pathlib import Path
+from collections import Counter
 
+DATA_DIR = Path("data")
+DATA_DIR.mkdir(exist_ok=True)
+scraped_ones = set([])
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
 
 def extract_next_links(url, resp):
+    with open(DATA_DIR/"url.txt", 'a') as file:
+        file.write(resp.url + "\n")
+    links = set()
+    if resp.status != 200:
+        return links
+    if 600 <= resp.status <= 606:
+        return links
+    if not resp.raw_response or not resp.raw_response.content:
+        return links
+    if resp.status == 200:
+        raw_content = BeautifulSoup(resp.raw_response.content, features="html.parser")
+        tags = raw_content.find_all("a")
+        for a in tags:
+            link = a.get('href')
+
+            if is_valid(link):
+                parsed = urlparse(link)
+                fragment = parsed.fragment     
+
+                if len(fragment) > 0:                   # remove fragment part (#...) from url
+                    link = link.replace(fragment, "") 
+
+                if link not in scraped_ones:
+                    scraped_ones.add(link)
+                    links.add(link)
+        content = raw_content.get_text()
+        tokensList = content.split()
+        with open(DATA_DIR/"tokens_per_url.txt", 'a') as file:
+            json_object = {"url": resp.url,
+                           "tokens": tokensList}
+            json.dump(json_object, file)
+            file.write("\n")
+
+    links = list(links)
+    return links
+    
     # Implementation required.
     # url: the URL that was used to get the page
+
     # resp.url: the actual url of the page
     # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
     # resp.error: when status is not 200, you can check the error here, if needed.
@@ -15,7 +59,6 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    return list()
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
