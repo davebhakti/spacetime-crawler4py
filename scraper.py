@@ -41,8 +41,7 @@ def extract_next_links(url, resp):
         content = raw_content.get_text()
         tokensList = content.split()
         with open(DATA_DIR/"tokens_per_url.txt", 'a') as file:
-            json_object = {"url": resp.url,
-                           "tokens": tokensList}
+            json_object = {"url": resp.url, "tokens": tokensList}
             json.dump(json_object, file)
             file.write("\n")
 
@@ -67,6 +66,18 @@ def is_valid(url):
     try:
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]):
+            return False
+        if len(url) > 300:
+            return False
+        if not re.match(r"(.*.?ics.uci.edu)|(.*.?cs.uci.edu)|(.*.?informatics.uci.edu)|(.*.?stat.uci.edu)|(today.uci.edu)", parsed.netloc):
+            return False
+        if re.match(r"today.uci.edu", parsed.netloc) and not re.match(r"\/department\/information_computer_sciences\/?.*", parsed.path):
+            return False
+        if re.search(r"(calendar|events|date|week|year|month|day)", parsed.path.lower()):
+            return False #Searching all the traps
+        if url.lower().count('/') > 20:
+            return False
+        if re.search(r"sessionid=|sid=", url.lower()):
             return False
         return not re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
