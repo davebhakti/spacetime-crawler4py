@@ -5,12 +5,30 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from collections import Counter
 
+import ast # So this like is used to parase file containing tokens words from urls
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 scraped_ones = set([])
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
+
+STOP_WORDS = {
+    'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 
+    'aren', 'as', 'at', 'be', 'because', 'been', 'before', 'being', 'below', 'between', 'both', 
+    'but', 'by', 'can', 'cannot', 'could', 'couldn', 'did', 'didn', 'do', 'does', 'doesn', 
+    'doing', 'don', 'down', 'during', 'each', 'few', 'for', 'from', 'further', 'had', 'hadn', 
+    'has', 'hasn', 'have', 'haven', 'having', 'he', 'her', 'here', 'hers', 'herself', 'him', 
+    'himself', 'his', 'how', 'i', 'if', 'in', 'into', 'is', 'isn', 'it', 'its', 'itself', 
+    'just', 'll', 'm', 'ma', 'me', 'might', 'more', 'most', 'mustn', 'my', 'myself', 
+    'needn', 'no', 'nor', 'not', 'now', 'o', 'of', 'off', 'on', 'once', 'only', 'or', 
+    'other', 'our', 'ours', 'ourselves', 'out', 'over', 'own', 're', 's', 'same', 'shan', 
+    'she', 'should', 'shouldn', 'so', 'some', 'such', 't', 'than', 'that', 'the', 'their', 
+    'theirs', 'them', 'themselves', 'then', 'there', 'these', 'they', 'this', 'those', 
+    'through', 'to', 'too', 'under', 'until', 'up', 've', 'very', 'was', 'wasn', 'we', 
+    'were', 'weren', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 
+    'will', 'with', 'won', 'wouldn', 'y', 'you', 'your', 'yours', 'yourself', 'yourselves'
+}
 
 def extract_next_links(url, resp):
     with open(DATA_DIR/"url.txt", 'a') as file:
@@ -30,7 +48,7 @@ def extract_next_links(url, resp):
 
             if is_valid(link):
                 parsed = urlparse(link)
-                fragment = parsed.fragment     
+                fragment = parsed.fragment      
 
                 if len(fragment) > 0:                   # remove fragment part (#...) from url
                     link = link.replace(fragment, "") 
@@ -92,3 +110,132 @@ def is_valid(url):
     except TypeError:
         print ("TypeError for ", parsed)
         raise
+
+def defragment_url(url):
+    for i in range(len(url)-1, -1, -1):
+        if url[i] == "#":
+            url = url[:i-1]
+            break
+        if url[i] == "/":
+            break
+    return url
+
+def most_common_words(word_list, word_dic):
+    for wd in word_list:
+        if wd.lower() in STOP_WORDS or len(wd) < 2:
+            continue
+        else:
+            if wd in word_dic:
+                word_dic[wd] += 1
+            else:
+                word_dic[wd] = 1
+    return word_dic
+
+def find_sub_domain(url):
+    url = url.strip()
+    parsed = urlparse(url)
+    subdom = parsed.hostname or ""
+    if subdom.startswith("www."):
+        subdom = subdom[4:]
+    return subdom
+
+def verify_word_list(word_list):
+    filtered_tokens = []
+    for token in word_list:
+        t = token.strip()
+        if len(t) <= 1:
+            continue
+        if t.lower() in STOP_WORDS:
+            continue
+        if not any(char.isalnum() for char in t):
+            continue
+        filtered_tokens.append(t)
+
+    return filtered_tokens
+
+def print_results(num_urls, longest_page, max_wd_cnt, word_dic, unique_sub):
+    print(f"The nunber of unique URLS is {num_urls}")
+    print(f"The longest page is {longest_page}")
+    print(f"The longest url page word length is {max_wd_cnt}")
+
+    print("***********Top 50 Words*************")
+    top_words = sorted(word_dic.items(), key=lambda item: item[1], reverse=True)[:50]
+
+    for word, freq in top_words:
+        print(f"{word}: {freq}")
+        
+    print("***********All Unique Subdomains*************")
+    for subdom, freq in sorted(unique_sub.items()):
+        print(f"{subdom}, {freq}")
+
+def traverse_url_list(path):
+    unique_urls = set([])
+    max_word_count = 0
+    longest_page_url = ""
+    unique_sub = {}
+    word_dic = {}
+    with open(path, 'r', encoding='utf-8') as content:
+        for line in content:
+            try:
+                line = line.strip()
+                if not line:
+                    continue
+                URL_CONTENT = ast.literal_eval(line)
+                url = URL_CONTENT.get("url")
+                url_word_list = URL_CONTENT.get("tokens")
+            except Exception as e:
+                continue
+            
+            url = defragment_url(url)
+            if url not in unique_urls:
+               unique_urls.add(url)
+
+            url_word_list = verify_word_list(url_word_list)
+            
+            url_word_len = len(url_word_list)
+            if longest_page_url == "" or max_word_count <= url_word_len:
+                max_word_count = url_word_len
+                longest_page_url = url
+
+            word_dic = most_common_words(url_word_list, word_dic)
+            sub_domain = find_sub_domain(url)
+
+            if sub_domain not in unique_sub:
+                unique_sub[sub_domain] = 1
+            else:
+                unique_sub[sub_domain] += 1
+            
+    #print_results(len(unique_urls), longest_page_url, max_word_count, word_dic, unique_sub)
+    return [unique_urls, longest_page_url, max_word_count, word_dic, unique_sub]
+
+
+
+if __name__ == "__main__":
+    #print(find_sub_domain("https://oai.ics.uci.edu"))
+    #print(find_sub_domain("https://courselisting.ics.uci.edu/ugrad_courses/listing-course.php?year=2023&level=Undergraduate&department=STATS&program=ALL"))
+    #traverse_url_list("temp_tokern_url.txt")
+    
+    aa = traverse_url_list("data/tokens_per_url_aa.txt")
+    bb = traverse_url_list("data/tokens_per_url_ab.txt")
+    cc = traverse_url_list("data/tokens_per_url_ac.txt")
+
+    unique_urls = aa[0].union(bb[0], cc[0])
+
+    if aa[2] >= bb[2] and aa[2] >= cc[2]:
+        max_word_count = aa[2]
+        longest_page_url = aa[1]
+    if bb[2] >= aa[2] and bb[2] >= cc[2]:
+        max_word_count = bb[2]
+        longest_page_url = bb[1]
+    if cc[2] >= aa[2] and cc[2] >= bb[2]:
+        max_word_count = cc[2]
+        longest_page_url = cc[1]
+
+    word_dic = Counter(aa[3]) + Counter(bb[3]) + Counter(cc[3])
+    word_dic = dict(word_dic)
+
+    unique_sub = Counter(aa[4]) + Counter(bb[4]) + Counter(cc[4])
+    unique_sub = dict(unique_sub)
+        
+    
+    print_results(len(unique_urls), longest_page_url, max_word_count, word_dic, unique_sub)
