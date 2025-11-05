@@ -5,13 +5,14 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from collections import Counter
 
-import ast # So this like is used to parase file containing tokens words from urls
+import ast # So this like is used to parse file containing tokens words from urls
 data_dir = Path("data")
 data_dir.mkdir(exist_ok=True)
-scraped_ones = set([])
+scraped_ones = set([]) #scraped_ones tracks URLs already seen to avoid duplicates.
 def scraper(url, resp):
     links = extract_next_links(url, resp)
     return [link for link in links if is_valid(link)]
+    #Calls extract_next_links to get all links on the page. Filters out invalid URLs using is_valid. Returns only the valid ones to the crawler.
 
 stop_words = {
     'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an', 'and', 'any', 'are', 
@@ -28,14 +29,16 @@ stop_words = {
     'through', 'to', 'too', 'under', 'until', 'up', 've', 'very', 'was', 'wasn', 'we', 
     'were', 'weren', 'what', 'when', 'where', 'which', 'while', 'who', 'whom', 'why', 
     'will', 'with', 'won', 'wouldn', 'y', 'you', 'your', 'yours', 'yourself', 'yourselves'
-}
+} #A long list of English stopwords to remove unimportant words when counting token frequencies later.
 
 def extract_next_links(url, resp):
     with open(data_dir/"url.txt", 'a') as file:
         file.write(resp.url + "\n")
+
+
     if "https://grape.ics.uci.edu/wiki/public/wiki/cs122b-20" in url:
-        return []
-    links = set()
+        return [] #This particular course gave me SO MUCH PAIN :,) Spent days figuring it was ONE WEBSITE
+    links = set() # Using a list was a BAD idea, stored as a set to prevent duplicates.
     if resp.status == 200:
         raw_content = BeautifulSoup(resp.raw_response.content, features="html.parser")
         tags = raw_content.find_all("a")
@@ -45,7 +48,7 @@ def extract_next_links(url, resp):
                 parsed = urlparse(link)
                 fragment = parsed.fragment      
 
-                if len(fragment) > 0:                   # remove fragment part (#...) from url
+                if len(fragment) > 0:                   
                     link = link.replace(fragment, "") 
 
                 if link not in scraped_ones:
@@ -82,12 +85,12 @@ def is_valid(url):
             return False
         if len(url) > 300:
             return False
+        if re.search(r"(calendar|events|date|week|year|month|day)", parsed.path.lower()):
+            return False #Searching all the traps
         if not re.match(r"(.*.?ics.uci.edu)|(.*.?cs.uci.edu)|(.*.?informatics.uci.edu)|(.*.?stat.uci.edu)|(today.uci.edu)", parsed.netloc):
             return False
         if re.match(r"today.uci.edu", parsed.netloc) and not re.match(r"\/department\/information_computer_sciences\/?.*", parsed.path):
             return False
-        if re.search(r"(calendar|events|date|week|year|month|day)", parsed.path.lower()):
-            return False #Searching all the traps
         if url.lower().count('/') > 20:
             return False
         if re.search(r"sessionid=|sid=", url.lower()):
@@ -103,10 +106,10 @@ def is_valid(url):
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower())
 
     except TypeError:
-        print ("TypeError for ", parsed)
+        print ("Error: ", parsed)
         raise
 
-def defragment_url(url):
+def break_url(url):
     for i in range(len(url)-1, -1, -1):
         if url[i] == "#":
             url = url[:i-1]
@@ -115,7 +118,7 @@ def defragment_url(url):
             break
     return url
 
-def most_common_words(word_list, words):
+def common_list(word_list, words):
     for wd in word_list:
         if wd.lower() in stop_words or len(wd) < 2:
             continue
@@ -125,14 +128,6 @@ def most_common_words(word_list, words):
             else:
                 words[wd] = 1
     return words
-
-def find_sub_domain(url):
-    url = url.strip()
-    parsed = urlparse(url)
-    subdom = parsed.hostname or ""
-    if subdom.startswith("www."):
-        subdom = subdom[4:]
-    return subdom
 
 def verify_word_list(word_list):
     filtered_tokens = []
@@ -148,22 +143,15 @@ def verify_word_list(word_list):
 
     return filtered_tokens
 
-def print_results(num_urls, longest_page, max_wd_cnt, words, unique_sub):
-    print(f"The nunber of unique URLS is {num_urls}")
-    print(f"The longest page is {longest_page}")
-    print(f"The longest url page word length is {max_wd_cnt}")
+def sub_domains(url):
+    url = url.strip()
+    parsed = urlparse(url)
+    subdom = parsed.hostname or ""
+    if subdom.startswith("www."):
+        subdom = subdom[4:]
+    return subdom
 
-    print("Top Fifty Words")
-    top_words = sorted(words.items(), key=lambda item: item[1], reverse=True)[:50]
-
-    for word, freq in top_words:
-        print(f"{word}: {freq}")
-        
-    print("All of the Unique Subdomains")
-    for subdom, freq in sorted(unique_sub.items()):
-        print(f"{subdom}, {freq}")
-
-def traverse_url_list(path):
+def traverse_urls(path):
     unique_urls = set([])
     max_word_count = 0
     longest_page_url = ""
@@ -181,7 +169,7 @@ def traverse_url_list(path):
             except Exception as e:
                 continue
             
-            url = defragment_url(url)
+            url = break_url(url)
             if url not in unique_urls:
                unique_urls.add(url)
 
@@ -192,43 +180,40 @@ def traverse_url_list(path):
                 max_word_count = url_word_len
                 longest_page_url = url
 
-            words = most_common_words(url_word_list, words)
-            sub_domain = find_sub_domain(url)
+            words = common_list(url_word_list, words)
+            sub_domain = sub_domains(url)
 
             if sub_domain not in unique_sub:
                 unique_sub[sub_domain] = 1
             else:
                 unique_sub[sub_domain] += 1
             
-    #print_results(len(unique_urls), longest_page_url, max_word_count, words, unique_sub)
+    #printing(len(unique_urls), longest_page_url, max_word_count, words, unique_sub)
     return [unique_urls, longest_page_url, max_word_count, words, unique_sub]
 
+def printing(num_urls, longest_page, max_wd_cnt, words, unique_sub):
+    print(f"The number of unique URLS: {num_urls}")
+    print(f"The longest page: {longest_page}")
+    print(f"The longest url page word length: {max_wd_cnt}")
+
+    print("=========================Top Fifty Words=========================")
+    top_words = sorted(words.items(), key=lambda item: item[1], reverse=True)[:50]
+
+    for word, freq in top_words:
+        print(f"{word}: {freq}")
+        
+    print("=========================All of the Unique Subdomains=========================")
+    for subdom, freq in sorted(unique_sub.items()):
+        print(f"{subdom}, {freq}")
 
 
 if __name__ == "__main__":
-
+    result = traverse_urls("data/tokens_per_url.txt")
     
-    aa = traverse_url_list("data/tokens_per_url_aa.txt")
-    bb = traverse_url_list("data/tokens_per_url_ab.txt")
-    cc = traverse_url_list("data/tokens_per_url_ac.txt")
-
-    unique_urls = aa[0].union(bb[0], cc[0])
-
-    if aa[2] >= bb[2] and aa[2] >= cc[2]:
-        max_word_count = aa[2]
-        longest_page_url = aa[1]
-    if bb[2] >= aa[2] and bb[2] >= cc[2]:
-        max_word_count = bb[2]
-        longest_page_url = bb[1]
-    if cc[2] >= aa[2] and cc[2] >= bb[2]:
-        max_word_count = cc[2]
-        longest_page_url = cc[1]
-
-    words = Counter(aa[3]) + Counter(bb[3]) + Counter(cc[3])
-    words = dict(words)
-
-    unique_sub = Counter(aa[4]) + Counter(bb[4]) + Counter(cc[4])
-    unique_sub = dict(unique_sub)
-        
+    unique_urls = result[0]
+    longest_page_url = result[1]
+    max_word_count = result[2]
+    words = result[3]
+    unique_sub = result[4]
     
-    print_results(len(unique_urls), longest_page_url, max_word_count, words, unique_sub)
+    printing(len(unique_urls), longest_page_url, max_word_count, words, unique_sub)
